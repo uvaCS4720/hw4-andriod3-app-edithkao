@@ -1,41 +1,43 @@
 package edu.nd.pmcburne.hello
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import edu.nd.pmcburne.hello.data.AppDatabase
+import edu.nd.pmcburne.hello.data.PlacemarkRepository
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
-data class MainUIState(
-    val counterValue: Int
-)
+class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-class MainViewModel(
-    val initialCounterValue: Int = 0
-) : ViewModel() {
-    private val _uiState = MutableStateFlow(MainUIState(initialCounterValue))
-    val uiState: StateFlow<MainUIState> = _uiState.asStateFlow()
+    private val db = AppDatabase.get(application)
+    private val repository = PlacemarkRepository(db.locationDao())
 
-    fun incrementCounter() {
-        _uiState.update{ currentState ->
-            currentState.copy(counterValue = _uiState.value.counterValue + 1)
+    private val _filterTag = MutableStateFlow("core")
+    val filterTag = _filterTag.asStateFlow()
+
+    val tags = repository.tags()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val locations = _filterTag
+        .flatMapLatest { tag -> repository.locationsForTag(tag) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        viewModelScope.launch {
+            try {
+                repository.loadFromInternet()
+            } catch (e: Exception) {
+                // Network failed — app uses whatever is already in the database
+            }
         }
     }
 
-    fun decrementCounter() {
-        _uiState.update{ currentState ->
-            currentState.copy(counterValue = _uiState.value.counterValue - 1)
-        }
+    fun setFilterTag(tag: String) {
+        _filterTag.value = tag
     }
-
-    fun resetCounter() {
-        _uiState.update { currentState ->
-            currentState.copy(counterValue = 0)
-        }
-    }
-
-    val isDecrementEnabled: Boolean
-        get() = _uiState.value.counterValue > 0
-    val isResetEnabled: Boolean
-        get() = _uiState.value.counterValue > 0
 }
